@@ -269,8 +269,6 @@ Check out these Reference Kits and Workflows that use Intel Transfer Learning To
 * [Breast Cancer Detection](https://github.com/IntelAI/transfer-learning/tree/main/workflows/disease_prediction)
 * [Anomaly Detection](https://github.com/IntelAI/transfer-learning/tree/main/workflows/vision_anomaly_detection)
 
-Fork!
-
 ## Support
 
 The Intel Transfer Learning Tool team tracks bugs and enhancement requests using
