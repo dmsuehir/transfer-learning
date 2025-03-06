@@ -3,9 +3,20 @@ import pytest
 import shutil
 import tempfile
 
-from torch.nn import Module
-from tensorflow_hub.keras_layer import KerasLayer
-from tensorflow.keras import Model
+try:
+    from torch.nn import Module
+except ModuleNotFoundError:
+    print("WARNING: Unable to import torch. Torch may not be installed")
+
+try:
+    from tensorflow_hub.keras_layer import KerasLayer
+except ModuleNotFoundError:
+    print("WARNING: Unable to import KerasLayer. Tensorflow Hub may not be installed")
+
+try:
+    from tensorflow.keras import Model
+except ModuleNotFoundError:
+    print("WARNING: Unable to import Keras Model. Tensorflow may not be installed")
 
 from downloader import models
 from downloader.types import ModelType
@@ -30,28 +41,64 @@ class TestModelDownload:
     """
     @classmethod
     def setup_class(cls):
-        cls._model_dir = tempfile.mkdtemp()
+        # Check if the environment variable for the model directory is set
+        cls._model_dir = os.environ.get('MODEL_DIR')
+        print("temp dir is:", cls._model_dir)
+
+        # If not set, then use a temp directory
+        if cls._model_dir is None:
+            cls._model_dir = tempfile.mkdtemp()
+            cls._using_temp_dir = True
+        else:
+            cls._using_temp_dir = False
 
     @classmethod
     def teardown_class(cls):
-        if os.path.exists(cls._model_dir):
+        if cls._using_temp_dir and os.path.exists(cls._model_dir):
             print("Deleting test directory:", cls._model_dir)
             shutil.rmtree(cls._model_dir)
 
-    @pytest.mark.skip(reason='TODO: Solve test fails with urllib.error.HTTPError: HTTP Error 403: rate limit exceeded')
+    # Has previously been skipped due to HTTP Error 403: rate limit exceeded')
+    @pytest.mark.integration
     @pytest.mark.parametrize('model_name,hub,kwargs',
-                             [['https://tfhub.dev/google/efficientnet/b0/feature-vector/1', 'tf_hub', {}],
-                              ['https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/3', 'tfhub',
-                               {'name': 'encoder', 'trainable': True}],
-                              ['resnet34', 'torchvision', {}],
+                             [['resnet34', 'torchvision', {}],
                               ['mobilenet_v2', 'torchvision', {}],
                               ['resnet18_ssl', 'pytorch_hub', {}],
                               ['resnet50_swsl', 'pytorch_hub', {}],
                               ['distilbert-base-uncased', 'huggingface', {}],
-                              ['bert-base-cased', 'hugging_face', {}],
-                              ['Xception', 'keras_applications', {}],
-                              ['ResNet50', 'keras', {'weights': 'imagenet', 'include_top': False}]])
+                              ['bert-base-cased', 'hugging_face', {}]])
     def test_hub_download(self, model_name, hub, kwargs):
+        """
+        Tests downloader for different model hubs
+        """
+        downloader = models.ModelDownloader(model_name, hub, model_dir=self._model_dir, **kwargs)
+        model = downloader.download()
+
+        # Check the type of the downloader and returned object
+        if downloader._type == ModelType.TORCHVISION:
+            assert isinstance(model, Module)
+        elif downloader._type == ModelType.PYTORCH_HUB:
+            assert isinstance(model, Module)
+        elif downloader._type == ModelType.HUGGING_FACE:
+            assert isinstance(model, Module)
+        else:
+            assert False
+
+        # Check that the directory is not empty
+        assert os.listdir(self._model_dir) is not None
+
+    # Has previously been skipped due to HTTP Error 403: rate limit exceeded')
+    @pytest.mark.integration
+    @pytest.mark.tensorflow
+    @pytest.mark.parametrize('model_name,hub,kwargs',
+                             [['https://tfhub.dev/google/efficientnet/b0/feature-vector/1', 'tf_hub', {}],
+                              ['https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/3', 'tfhub',
+                               {'name': 'encoder', 'trainable': True}],
+                              ['Xception', 'keras_applications', {}],
+                              ['ResNet50', 'keras', {'weights': 'imagenet', 'include_top': False}],
+                              ['google/bert_uncased_L-2_H-128_A-2', 'tf_bert_huggingface', {}],
+                              ['bert-base-uncased', 'tf_bert_hugging_face', {}]])
+    def test_hub_download_tensorflow(self, model_name, hub, kwargs):
         """
         Tests downloader for different model hubs
         """
@@ -61,13 +108,9 @@ class TestModelDownload:
         # Check the type of the downloader and returned object
         if downloader._type == ModelType.TF_HUB:
             assert isinstance(model, KerasLayer)
-        elif downloader._type == ModelType.TORCHVISION:
-            assert isinstance(model, Module)
-        elif downloader._type == ModelType.PYTORCH_HUB:
-            assert isinstance(model, Module)
-        elif downloader._type == ModelType.HUGGING_FACE:
-            assert isinstance(model, Module)
         elif downloader._type == ModelType.KERAS_APPLICATIONS:
+            assert isinstance(model, Model)
+        elif downloader._type == ModelType.TF_BERT_HUGGINGFACE:
             assert isinstance(model, Model)
         else:
             assert False

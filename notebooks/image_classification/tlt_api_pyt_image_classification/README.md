@@ -15,7 +15,34 @@ The notebook performs the following steps:
 
 ## Running the notebook
 
-To run the notebook, follow the instructions to setup the [PyTorch notebook environment](/notebooks#pytorch-environment).
+To run the notebook, follow the instructions to setup the [PyTorch notebook environment](/notebooks/setup.md).
+
+To use Gaudi for training and inference, install required software for Intel Gaudi: 
+1.  Temporarily uninstall torch
+```
+# Torch will later be re-installed below
+pip uninstall torch
+```
+2.  Install the Gaudi Intel SW Stack
+```
+wget -nv https://vault.habana.ai/artifactory/gaudi-installer/1.15.0/habanalabs-installer.sh
+chmod +x habanalabs-installer.sh
+sudo apt-get update
+```
+```
+# Note: This may not be required depending on what is already installed on your machine
+./habanalabs-installer.sh install --type base
+```
+3.	Install the Gaudi Intel Pytorch environment
+```
+# Note: This step may not be required depending on what is already installed on your machine
+./habanalabs-installer.sh install -t dependencies
+```
+```
+./habanalabs-installer.sh install --type pytorch –venv
+```
+
+See [Habana Docs](https://docs.habana.ai/en/latest/Installation_Guide/SW_Verification.html) for detailed installation instructions
 
 ## References
 

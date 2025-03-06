@@ -15,14 +15,14 @@
 # limitations under the License.
 #
 
-tf_notebooks=(
+tensorflow_notebooks=(
     "notebooks/image_classification/tf_image_classification/Image_Classification_Transfer_Learning.ipynb"
     "notebooks/question_answering/tfhub_question_answering/BERT_Question_Answering.ipynb"
     "notebooks/text_classification/tfhub_text_classification/BERT_Binary_Text_Classification.ipynb"
     "notebooks/text_classification/tfhub_text_classification/BERT_Multi_Text_Classification.ipynb"
 )
 
-pyt_notebooks=(
+pytorch_notebooks=(
     "notebooks/image_classification/pytorch_image_classification/PyTorch_Image_Classification_Transfer_Learning.ipynb"
     "notebooks/text_classification/pytorch_text_classification/PyTorch_Text_Classifier_fine_tuning.ipynb"
 )
@@ -34,11 +34,18 @@ fi
 
 CURDIR=$PWD
 INPUT=$1
+SUCCESS=0
+
+# Set to an error exit code, if any notebook fails
+exit_code_summary=${SUCCESS}
+
+# Array tracking the notebooks with errors
+failed_notebooks=()
 
 if [[ $INPUT == "tensorflow" ]] ; then
-    notebooks=${tf_notebooks[*]}
+    notebooks=${tensorflow_notebooks[*]}
 elif [[ $INPUT == "pytorch" ]] ; then
-    notebooks=${pyt_notebooks[*]}
+    notebooks=${pytorch_notebooks[*]}
 else
     # Parse the filename from the path
     DIR=${INPUT%/*}
@@ -69,6 +76,26 @@ for notebook in ${notebooks[*]}; do
 
     pushd ${DIR}
     PYTHONPATH=${CURDIR} ipython notebook_test.py
+    script_exit_code=$?
+
+    if [ ${script_exit_code} != ${SUCCESS} ]; then
+        failed_notebooks+=(${notebook})
+        exit_code_summary=${script_exit_code}
+    fi
+
     rm notebook_test.py
     popd
 done
+
+# If any notebook failed, print out the failing notebook(s)
+if [ ${exit_code_summary} != ${SUCCESS} ]; then
+    echo ""
+    echo "Failed notebooks:"
+    for failed_nb in "${failed_notebooks[@]}"
+    do
+        echo ${failed_nb}
+    done
+fi
+
+exit ${exit_code_summary}
+

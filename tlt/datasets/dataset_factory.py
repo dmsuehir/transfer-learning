@@ -54,6 +54,10 @@ dataset_map = {
             "custom": {"module": "tlt.datasets.image_anomaly_detection.pytorch_custom_image_anomaly_detection_dataset",
                        "class": "PyTorchCustomImageAnomalyDetectionDataset"}
         },
+        UseCaseType.TEXT_GENERATION: {
+            "custom": {"module": "tlt.datasets.text_generation.hf_custom_text_generation_dataset",
+                       "class": "HFCustomTextGenerationDataset"}
+        },
     }
 }
 
@@ -112,7 +116,7 @@ def load_dataset(dataset_dir: str, use_case: UseCaseType, framework: FrameworkTy
         (dataset)
 
     Raises:
-        NotImplementedError if the type of dataset being loaded is not supported
+        NotImplementedError: if the type of dataset being loaded is not supported
 
     Example:
         >>> from tlt.datasets.dataset_factory import load_dataset
@@ -166,7 +170,7 @@ def get_dataset(dataset_dir: str, use_case: UseCaseType, framework: FrameworkTyp
         (dataset)
 
     Raises:
-        NotImplementedError if the dataset requested is not supported yet
+        NotImplementedError: if the dataset requested is not supported yet
 
     Example:
         >>> from tlt.datasets.dataset_factory import get_dataset
@@ -186,7 +190,7 @@ def get_dataset(dataset_dir: str, use_case: UseCaseType, framework: FrameworkTyp
         if framework is FrameworkType.TENSORFLOW:
             dataset_catalog = "tf_datasets"
         elif framework is FrameworkType.PYTORCH:
-            if use_case in [UseCaseType.IMAGE_CLASSIFICATION, UseCaseType.OBJECT_DETECTION]:
+            if use_case in [UseCaseType.IMAGE_CLASSIFICATION]:
                 dataset_catalog = "torchvision"
             elif use_case is UseCaseType.TEXT_CLASSIFICATION:
                 dataset_catalog = "huggingface"

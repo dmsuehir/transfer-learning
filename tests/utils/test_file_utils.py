@@ -24,7 +24,7 @@ import shutil
 import tempfile
 from unittest.mock import MagicMock
 
-from tlt.utils.file_utils import validate_model_name, download_file
+from tlt.utils.file_utils import download_file, get_model_name_from_path, validate_model_name
 
 
 @pytest.mark.common
@@ -50,19 +50,37 @@ def test_download():
     expected = os.path.join(output_dir, 'example.txt')
 
     # Set up mock return value
+    mock_file_contents = MagicMock()
+    mock_file_contents.read.return_value = b''
+
     mock_file = MagicMock(spec=io.BytesIO)
     mock_file.__enter__.return_value = mock_file
-    mock_file.read.return_value = b''
+    mock_file.raw = mock_file_contents
 
-    # Patch urlopen
-    with mock.patch('urllib.request.urlopen', return_value=mock_file) as mock_urlopen:
+    # Patch requests.get
+    with mock.patch('requests.get', return_value=mock_file) as mock_get:
         result = download_file('https://example-files.online-convert.com/document/txt/example.txt', output_dir)
         assert result == expected
 
         # Check that the mock was called as expected
-        mock_urlopen.assert_called_with('https://example-files.online-convert.com/document/txt/example.txt')
-        mock_file.read.assert_called_once()
+        mock_get.assert_called_with('https://example-files.online-convert.com/document/txt/example.txt',
+                                    stream=True, timeout=30)
+        mock_file_contents.read.assert_called_once()
 
     # Delete the temp output directory
     if os.path.exists(output_dir) and os.path.isdir(output_dir):
         shutil.rmtree(output_dir)
+
+
+@pytest.mark.common
+@pytest.mark.parametrize('model_dir,expected_model_name',
+                         [['/tmp/user/resnet_v2_50/12/', 'resnet_v2_50'],
+                          ['/tmp/user/resnet_v2_50/12', 'resnet_v2_50'],
+                          ['/localdisk/folder/google_bert_uncased_L-2_H-128_A-2/8/',
+                           'google_bert_uncased_L-2_H-128_A-2']])
+def test_get_model_name_from_path(model_dir, expected_model_name):
+    """
+    Tests the file utils method that returns the model name from a model directory path. Verifies that the model name
+    returned matches the expected model name.
+    """
+    assert expected_model_name == get_model_name_from_path(model_dir)

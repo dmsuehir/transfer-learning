@@ -22,6 +22,7 @@ import click
 import os
 import sys
 
+from tlt.utils.file_utils import get_model_name_from_path
 from tlt.utils.types import FrameworkType
 
 
@@ -59,7 +60,7 @@ def optimize(model_dir, output_dir):
                  "models. No such files found in the model directory ({}).".format(model_dir))
 
     # Get the model name from the directory path, assuming models are exported like <model name>/n
-    model_name = os.path.basename(os.path.dirname(model_dir))
+    model_name = get_model_name_from_path(model_dir)
 
     print("Model name:", model_name)
     print("Framework:", framework)
@@ -68,6 +69,7 @@ def optimize(model_dir, output_dir):
         from tlt.models.model_factory import get_model
 
         model = get_model(model_name, framework)
+        model.load_from_directory(model_dir)
     except Exception as e:
         sys.exit("An error occurred while getting the model: {}\nNote that the model directory is expected to contain "
                  "a previously exported model where the directory structure is <model name>/n/saved_model.pb "
@@ -85,7 +87,7 @@ def optimize(model_dir, output_dir):
 
         # Call the graph optimization API
         print("Starting graph optimization", flush=True)
-        model.optimize_graph(model_dir, optimized_output_dir)
+        model.optimize_graph(optimized_output_dir)
 
     except Exception as e:
         sys.exit("An error occurred during graph optimization: {}".format(str(e)))

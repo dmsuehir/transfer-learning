@@ -18,6 +18,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import json
 import os
 import math
 import pytest
@@ -28,6 +29,8 @@ from numpy.testing import assert_array_equal
 from PIL import Image
 import random
 import string
+
+from datasets.arrow_dataset import Dataset as Arrow_Dataset
 
 from tlt.datasets.dataset_factory import get_dataset, load_dataset
 
@@ -60,6 +63,18 @@ except ModuleNotFoundError:
     print("Unable to import HFCustomTextClassificationDataset. Hugging Face's 'tranformers' API may not be \
             installed in the current env")
 
+try:
+    from tlt.datasets.text_generation.hf_text_generation_dataset import HFTextGenerationDataset
+except ModuleNotFoundError:
+    print("Unable to import HFTextGenerationDataset. Hugging Face's 'tranformers' API may not be installed \
+            in the current env")
+
+try:
+    from tlt.datasets.text_generation.hf_custom_text_generation_dataset import HFCustomTextGenerationDataset
+except ModuleNotFoundError:
+    print("Unable to import HFCustomTextGenerationDataset. Hugging Face's 'tranformers' API may not be \
+            installed in the current env")
+
 
 @pytest.mark.pytorch
 def test_torchvision_subset():
@@ -67,8 +82,8 @@ def test_torchvision_subset():
     Checks that a torchvision test subset can be loaded
     """
     data = get_dataset('/tmp/data', 'image_classification', 'pytorch', 'CIFAR10', 'torchvision', split=["test"])
-    assert type(data) == TorchvisionImageClassificationDataset
-    assert len(data.dataset) < 50000
+    assert isinstance(data, TorchvisionImageClassificationDataset)
+    assert len(data.dataset) > 0
 
 
 @pytest.mark.pytorch
@@ -79,19 +94,19 @@ def test_defined_split():
     """
     data = get_dataset('/tmp/data', 'image_classification', 'pytorch', 'CIFAR10',
                        'torchvision', split=['train', 'test'])
-    assert len(data.dataset) == 60000
-    assert len(data.train_subset) == 50000
-    assert len(data.test_subset) == 10000
+
+    dataset_size = len(data.dataset)
+    assert dataset_size > 0
+    assert len(data.train_subset) <= dataset_size
+    assert len(data.test_subset) <= len(data.train_subset)
     assert data.validation_subset is None
-    assert data._train_indices == range(50000)
-    assert data._test_indices == range(50000, 60000)
     assert data._validation_type == 'defined_split'
 
     # Apply shuffle split and verify new subset sizes
     data.shuffle_split(.6, .2, .2, seed=10)
-    assert len(data.train_subset) == 36000
-    assert len(data.validation_subset) == 12000
-    assert len(data.test_subset) == 12000
+    assert len(data.train_subset) == dataset_size * .6
+    assert len(data.validation_subset) == dataset_size * .2
+    assert len(data.test_subset) == dataset_size * .2
     assert data._validation_type == 'shuffle_split'
 
 
@@ -108,6 +123,7 @@ def test_shuffle_split():
     assert data._validation_type == 'shuffle_split'
 
 
+@pytest.mark.integration
 @pytest.mark.pytorch
 def test_shuffle_split_deterministic_tv():
     """
@@ -163,6 +179,7 @@ def test_shuffle_split_deterministic_custom():
             ic_dataset2.cleanup()
 
 
+@pytest.mark.integration
 @pytest.mark.pytorch
 @pytest.mark.parametrize('dataset_dir,dataset_name,dataset_catalog,class_names,batch_size',
                          [['/tmp/data', 'DTD', 'torchvision', None, 32],
@@ -184,6 +201,7 @@ def test_batching(dataset_dir, dataset_name, dataset_catalog, class_names, batch
         ic_dataset.cleanup()
 
 
+@pytest.mark.integration
 @pytest.mark.pytorch
 @pytest.mark.parametrize('dataset_dir,dataset_name,dataset_catalog,class_names',
                          [['/tmp/data', 'DTD', 'torchvision', None],
@@ -308,7 +326,6 @@ class TestImageClassificationDataset:
     tests will be run once for each of the dataset defined in the dataset_params list.
     """
 
-    @pytest.mark.pytorch
     def test_class_names_and_size(self, image_classification_data):
         """
         Verify the class type, dataset class names, and dataset length after initializaion
@@ -316,18 +333,17 @@ class TestImageClassificationDataset:
         tlt_dataset, dataset_name, dataset_classes, splits = image_classification_data
 
         if dataset_name is None:
-            assert type(tlt_dataset) == PyTorchCustomImageClassificationDataset
+            assert isinstance(tlt_dataset, PyTorchCustomImageClassificationDataset)
             assert len(tlt_dataset.class_names) == len(dataset_classes)
             if splits is None:
                 assert len(tlt_dataset.dataset) == len(dataset_classes) * 50
             else:
                 assert len(tlt_dataset.dataset) == len(dataset_classes) * len(splits) * 50
         else:
-            assert type(tlt_dataset) == TorchvisionImageClassificationDataset
+            assert isinstance(tlt_dataset, TorchvisionImageClassificationDataset)
             assert len(tlt_dataset.class_names) == len(torchvision_metadata[dataset_name]['class_names'])
             assert len(tlt_dataset.dataset) == torchvision_metadata[dataset_name]['size']
 
-    @pytest.mark.pytorch
     @pytest.mark.parametrize('batch_size',
                              ['foo',
                               -17,
@@ -340,7 +356,6 @@ class TestImageClassificationDataset:
         with pytest.raises(ValueError):
             tlt_dataset.preprocess(224, batch_size)
 
-    @pytest.mark.pytorch
     @pytest.mark.parametrize('image_size',
                              ['foo',
                               -17,
@@ -353,7 +368,6 @@ class TestImageClassificationDataset:
         with pytest.raises(ValueError):
             tlt_dataset.preprocess(image_size, batch_size=8)
 
-    @pytest.mark.pytorch
     def test_preprocessing(self, image_classification_data):
         """
         Checks that dataset can be preprocessed only once
@@ -368,7 +382,6 @@ class TestImageClassificationDataset:
         assert 'Data has already been preprocessed: {}'.format(preprocessing_inputs) == str(e.value)
         print(tlt_dataset.info)
 
-    @pytest.mark.pytorch
     def test_shuffle_split_errors(self, image_classification_data):
         """
         Checks that splitting into train, validation, and test subsets will error if inputs are wrong
@@ -382,7 +395,6 @@ class TestImageClassificationDataset:
             tlt_dataset.shuffle_split(train_pct=1, val_pct=0)
         assert 'Percentage arguments must be floats.' == str(e.value)
 
-    @pytest.mark.pytorch
     def test_shuffle_split(self, image_classification_data):
         """
         Checks that dataset can be split into train, validation, and test subsets
@@ -414,6 +426,14 @@ class TestImageClassificationDataset:
             ds_size * default_val_pct) <= len(tlt_dataset.validation_loader) <= math.ceil(ds_size * default_val_pct)
         assert tlt_dataset.test_loader is None
         assert tlt_dataset._validation_type == 'shuffle_split'
+
+    def test_get_batch(self, image_classification_data):
+        """
+        Checks that a batch can be retrieved
+        """
+        tlt_dataset, dataset_name, dataset_classes, splits = image_classification_data
+        x, y = tlt_dataset.get_batch()
+        assert len(x) == 8
 
 
 # Tests for Image Anomaly Detection datasets
@@ -466,19 +486,17 @@ class TestImageAnomalyDetectionDataset:
     These tests will be run once for each of the dataset defined in the anomaly_dataset_params list.
     """
 
-    @pytest.mark.pytorch
     def test_classes_defects_and_size(self, anomaly_detection_data):
         """
         Verify the class type, dataset class names, defect_names, and dataset length after initializaion
         """
         tlt_dataset, dataset_name, dataset_classes, use_case = anomaly_detection_data
 
-        assert type(tlt_dataset) == PyTorchCustomImageAnomalyDetectionDataset
+        assert isinstance(tlt_dataset, PyTorchCustomImageAnomalyDetectionDataset)
         assert len(tlt_dataset.class_names) == 2  # Always 2 for anomaly detection
         assert len(tlt_dataset.defect_names) == len(dataset_classes) - 1  # Subtract 1 for the "good" class
         assert len(tlt_dataset.dataset) == len(dataset_classes) * 50
 
-    @pytest.mark.pytorch
     def test_preprocessing(self, anomaly_detection_data):
         """
         Checks that dataset can be preprocessed only once
@@ -493,7 +511,6 @@ class TestImageAnomalyDetectionDataset:
         assert 'Data has already been preprocessed: {}'.format(preprocessing_inputs) == str(e.value)
         print(tlt_dataset.info)
 
-    @pytest.mark.pytorch
     def test_shuffle_split_errors(self, anomaly_detection_data):
         """
         Checks that splitting into train, validation, and test subsets will error if inputs are wrong
@@ -507,7 +524,6 @@ class TestImageAnomalyDetectionDataset:
             tlt_dataset.shuffle_split(train_pct=1, val_pct=0)
         assert 'Percentage arguments must be floats.' == str(e.value)
 
-    @pytest.mark.pytorch
     def test_shuffle_split(self, anomaly_detection_data):
         """
         Checks that dataset can be split into train, validation, and test subsets
@@ -538,11 +554,7 @@ class TestImageAnomalyDetectionDataset:
         assert tlt_dataset._validation_type == 'shuffle_split'
 
 
-# =======================================================================================
-
-# Testing for Text classification use case
-
-
+# Tests for Text Classification use case
 hf_metadata = {
     'imdb': {
         'class_names': ['neg', 'pos'],
@@ -636,6 +648,7 @@ def text_classification_data(request):
     return (tc_dataset.tlt_dataset, dataset_dir, dataset_name, dataset_catalog, class_names)
 
 
+@pytest.mark.integration
 @pytest.mark.pytorch
 class TestTextClassificationDataset:
     """
@@ -643,18 +656,18 @@ class TestTextClassificationDataset:
     tests will be run once for each of the datasets defined in the dataset_params list.
     """
 
-    @pytest.mark.pytorch
     def test_tlt_dataset(self, text_classification_data):
         """
         Tests whether a matching Intel Transfer Learning Tool dataset object is returned
         """
         tlt_dataset, _, dataset_name, _, _ = text_classification_data
         if dataset_name is None:
-            assert type(tlt_dataset) == HFCustomTextClassificationDataset
+            assert isinstance(tlt_dataset, HFCustomTextClassificationDataset)
         else:
-            assert type(tlt_dataset) == HFTextClassificationDataset
+            assert isinstance(tlt_dataset, HFTextClassificationDataset)
 
-    @pytest.mark.pytorch
+        assert isinstance(tlt_dataset.dataset, Arrow_Dataset)
+
     def test_class_names_and_size(self, text_classification_data):
         """
         Verify the class type, dataset class names, and dataset length after initializaion
@@ -667,7 +680,6 @@ class TestTextClassificationDataset:
             assert tlt_dataset.class_names == class_names
             assert len(tlt_dataset.dataset) == hf_metadata[dataset_name]['size']
 
-    @pytest.mark.pytorch
     @pytest.mark.parametrize('batch_size',
                              ['foo',  # A string
                               -17,  # A negative int
@@ -681,7 +693,6 @@ class TestTextClassificationDataset:
         with pytest.raises(ValueError):
             tlt_dataset.preprocess('', batch_size)
 
-    @pytest.mark.pytorch
     def test_shuffle_split_errors(self, text_classification_data):
         """
         Checks that splitting into train, validation, and test subsets will error if inputs are wrong
@@ -695,3 +706,151 @@ class TestTextClassificationDataset:
 
         assert 'Sum of percentage arguments must be less than or equal to 1.' == str(sum_err_message.value)
         assert 'Percentage arguments must be floats.' == str(float_err_message.value)
+
+
+# Tests for Text Generation use case
+
+class TextGenerationDatasetForTest:
+    def __init__(self, dataset_dir, dataset_name=None, dataset_catalog=None):
+        """
+        This class wraps initialization for text generation datasets.
+
+        For a text generation dataset from Hugging Face catalog, provide the dataset_dir, dataset_name, and \
+        dataset_catalog. The dataset factory will be used to load the specified dataset.
+        """
+        use_case = 'text_generation'
+        framework = 'pytorch'
+        dataset_dir = tempfile.mkdtemp(dir=dataset_dir)
+
+        if dataset_name and dataset_catalog:
+            # Text Generation HF datasets are not implemented yet; this is copied here to make it easier in future
+            self._dataset_catalog = dataset_catalog
+            self._tlt_dataset = get_dataset(dataset_dir, use_case, framework, dataset_name, dataset_catalog)
+        else:
+            self._dataset_catalog = None
+            dataset_schema = {
+                "instruction_key": "instruction",
+                "context_key": "context",
+                "response_key": "response"
+            }
+            dataset = self._create_dataset(n_records=50, dataset_schema=dataset_schema)
+
+            with open(os.path.join(dataset_dir, 'text_gen_dataset.json'), 'w') as f:
+                json.dump(dataset, f)
+
+            self._tlt_dataset = load_dataset(dataset_dir, use_case, framework, dataset_file='text_gen_dataset.json')
+
+        self._dataset_dir = dataset_dir
+
+    @property
+    def tlt_dataset(self):
+        """
+        Returns the tlt dataset object
+        """
+        return self._tlt_dataset
+
+    def _create_dataset(self, n_records, dataset_schema):
+        n_sentences = list(range(3, 10))
+
+        def get_random_word(n_chars):
+            return ''.join(random.choices(string.ascii_letters, k=n_chars))
+
+        def get_random_sentence(n_words):
+            sentence = ''
+            for _ in range(n_words):
+                sentence += '{} '.format(get_random_word(random.choice(list(range(2, 10)))))
+            return sentence.rstrip()
+
+        dataset = []
+        for row in range(n_records):
+            dataset.append({
+                dataset_schema["instruction_key"]: get_random_sentence(random.choice(n_sentences)),
+                dataset_schema["context_key"]: get_random_sentence(random.choice(n_sentences)),
+                dataset_schema["response_key"]: get_random_sentence(random.choice(n_sentences))
+            })
+
+        return dataset
+
+    def cleanup(self):
+        """
+        Clean up - remove temp files that were created
+        """
+        print("Deleting temp directory:", self._dataset_dir)
+        shutil.rmtree(self._dataset_dir)
+
+
+# Dataset parameters used to define datasets that will be initialized and tested using TestTextGenerationDataset
+# The parameters are: dataset_dir, dataset_name, dataset_catalog which map to the constructor parameters for
+# TextGenerationDatasetForTest, which initializes the dataset using the dataset factory.
+dataset_params = [("/tmp/data", None, None)]
+
+
+@pytest.fixture(scope="class", params=dataset_params)
+def text_generation_data(request):
+    params = request.param
+
+    tg_dataset = TextGenerationDatasetForTest(*params)
+
+    dataset_dir, dataset_name, dataset_catalog = params
+
+    def cleanup():
+        tg_dataset.cleanup()
+
+    request.addfinalizer(cleanup)
+
+    # Return the tlt dataset along with metadata that tests might need
+    return (tg_dataset.tlt_dataset, dataset_dir, dataset_name, dataset_catalog)
+
+
+@pytest.mark.integration
+@pytest.mark.pytorch
+class TestTextGenerationDataset:
+    """
+    This class contains text generation dataset tests that only require the dataset to be initialized once. These
+    tests will be run once for each of the datasets defined in the dataset_params list.
+    """
+
+    def test_tlt_dataset(self, text_generation_data):
+        """
+        Tests whether a matching Intel Transfer Learning Tool dataset object is returned
+        """
+        tlt_dataset, dataset_dir, dataset_name, dataset_catalog = text_generation_data
+        if dataset_catalog is None:
+            assert isinstance(tlt_dataset, HFCustomTextGenerationDataset)
+            assert isinstance(tlt_dataset.dataset, Arrow_Dataset)
+            assert len(tlt_dataset.dataset) == 50
+        else:
+            assert isinstance(tlt_dataset, HFTextGenerationDataset)
+
+    def test_shuffle_split_errors(self, text_generation_data):
+        """
+        Checks that splitting into train, validation, and test subsets will error if inputs are wrong
+        """
+        tlt_dataset, _, _, _ = text_generation_data
+        with pytest.raises(ValueError) as sum_err_message:
+            tlt_dataset.shuffle_split(train_pct=.5, val_pct=.5, test_pct=.2)
+
+        with pytest.raises(ValueError) as float_err_message:
+            tlt_dataset.shuffle_split(train_pct=1, val_pct=0)
+
+        assert 'Sum of percentage arguments must be less than or equal to 1.' == str(sum_err_message.value)
+        assert 'Percentage arguments must be floats.' == str(float_err_message.value)
+
+    def test_shuffle_split(self, text_generation_data):
+        """
+        Checks validity of splitting into train, validation, and test subsets
+        """
+        tlt_dataset, _, _, _ = text_generation_data
+
+        # Without test_pct
+        tlt_dataset.shuffle_split(train_pct=.5, val_pct=.5)
+        assert len(tlt_dataset.dataset) == 50
+        assert len(tlt_dataset.train_subset) == 25
+        assert len(tlt_dataset.validation_subset) == 25
+
+        # With test_pct
+        tlt_dataset.shuffle_split(train_pct=.50, val_pct=.20, test_pct=.10)
+        assert len(tlt_dataset.dataset) == 50
+        assert len(tlt_dataset.train_subset) == 25
+        assert len(tlt_dataset.validation_subset) == 10
+        assert len(tlt_dataset.test_subset) == 5

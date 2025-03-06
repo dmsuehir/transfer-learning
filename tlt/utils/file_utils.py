@@ -18,7 +18,7 @@
 
 import json
 import os
-import urllib.request
+import requests
 import re
 import shutil
 import tarfile
@@ -53,8 +53,10 @@ def download_file(download_url, destination_directory):
     destination_file_path = os.path.join(destination_directory, os.path.basename(download_url))
 
     print("Downloading {} to {}".format(download_url, destination_directory))
-    with urllib.request.urlopen(download_url) as response, open(destination_file_path, 'wb') as out_file:
-        shutil.copyfileobj(response, out_file)
+    response = requests.get(download_url, stream=True, timeout=30)  # Adds a 30 sec timeout for Bandit
+    with open(destination_file_path, 'wb') as out_file:
+        response.raw.decode_content = True
+        shutil.copyfileobj(response.raw, out_file)
 
     return destination_file_path
 
@@ -143,3 +145,18 @@ def validate_model_name(model_name):
         model_name = " ".join(model_name.split())
         model_name = re.sub('[^a-zA-Z\d_-]', '_', model_name)  # noqa: W605
         return model_name
+
+
+def get_model_name_from_path(model_directory):
+    """
+    Returns the model name from the directory assuming that the model directory is formatted like:
+    <root directory>/<model name>/n/saved_model.pb (for TensorFlow) or
+    <root directory>/<model name>/n/model.pt (for PyTorch)
+
+    Args:
+        model_directory (str): Directory path string with model name and numbered subdirectory
+
+    Returns:
+        str
+    """
+    return os.path.basename(os.path.dirname(model_directory.rstrip('/')))

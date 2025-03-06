@@ -1,3 +1,23 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2022 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 import os
 from typing import List, Optional
 
@@ -76,13 +96,13 @@ class HFCustomTextClassificationDataset(TextClassificationDataset, HFDataset):
             num_workers (int): Number of workers to pass into a DataLoader.
 
         Raises:
-            FileNotFoundError if the csv file is not found in the dataset directory
-            TypeError if label_map_func is not callable
-            ValueError if class_names list is empty
-            ValueError if column_names list does not contain the value 'label'
-            ValueError if index of 'label' in column_names and label_col mismatch
-            ValueError if the values of column_names are not strings.
-            ValueError if column_names contains more than one value as 'label'
+            FileNotFoundError: if the csv file is not found in the dataset directory
+            TypeError: if label_map_func is not callable
+            ValueError: if class_names list is empty
+            ValueError: if column_names list does not contain the value 'label'
+            ValueError: if index of 'label' in column_names and label_col mismatch
+            ValueError: if the values of column_names are not strings.
+            ValueError: if column_names contains more than one value as 'label'
 
         """
         # Sanity checks
@@ -114,8 +134,10 @@ class HFCustomTextClassificationDataset(TextClassificationDataset, HFDataset):
 
         TextClassificationDataset.__init__(self, dataset_dir, dataset_name, dataset_catalog=None)
 
-        print("WARNING: Using column {} as label column. To change this behavior, \
-               specify the label_col argument".format(label_col))
+        print("WARNING: Using column {} as label column. To change this behavior, "
+              "specify the label_col argument".format(label_col))
+        if delimiter == 't':
+            delimiter = '\t'
         if header:
             dataset_df = pd.read_csv(dataset_file, delimiter=delimiter, encoding='utf-8', dtype=str, names=column_names,
                                      header=0)

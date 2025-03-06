@@ -25,7 +25,26 @@ import numpy as np
 import random
 import inspect
 
+from torch.utils.data import Subset
 from tlt.datasets.dataset import BaseDataset
+
+
+class TransformedSubset(Subset):
+    def __init__(self, dataset, indices, transform=None):
+        super().__init__(dataset, indices)
+        self.transform = transform
+
+    def __getitem__(self, index):
+        x, y = self.dataset[self.indices[index]]
+        if self.transform:
+            x = self.transform(x)
+        return x, y
+
+    def __getitems__(self, indices):
+        data = [self.dataset[self.indices[idx]] for idx in indices]
+        if self.transform:
+            data = [(self.transform(x), y) for x, y in data]
+        return data
 
 
 class PyTorchDataset(BaseDataset):
@@ -38,27 +57,42 @@ class PyTorchDataset(BaseDataset):
         Class constructor
         """
         BaseDataset.__init__(self, dataset_dir, dataset_name, dataset_catalog)
+        self._transform = None
+        self._shuffle = False
 
     @property
     def train_subset(self):
         """
         A subset of the dataset used for training
         """
-        return torch.utils.data.Subset(self._dataset, self._train_indices) if self._train_indices else None
+        if self.dataset_catalog == 'custom' and self._transform is not None:
+            return TransformedSubset(self._dataset, self._train_indices, transform=self._transform) if \
+                self._train_indices else None
+        else:
+            return torch.utils.data.Subset(self._dataset, self._train_indices) if self._train_indices else None
 
     @property
     def validation_subset(self):
         """
         A subset of the dataset used for validation/evaluation
         """
-        return torch.utils.data.Subset(self._dataset, self._validation_indices) if self._validation_indices else None
+        if self.dataset_catalog == 'custom' and self._transform is not None:
+            return TransformedSubset(self._dataset, self._validation_indices, transform=self._transform) if \
+                self._validation_indices else None
+        else:
+            return torch.utils.data.Subset(self._dataset, self._validation_indices) if self._validation_indices \
+                else None
 
     @property
     def test_subset(self):
         """
         A subset of the dataset held out for final testing/evaluation
         """
-        return torch.utils.data.Subset(self._dataset, self._test_indices) if self._test_indices else None
+        if self.dataset_catalog == 'custom' and self._transform is not None:
+            return TransformedSubset(self._dataset, self._test_indices, transform=self._transform) if \
+                self._test_indices else None
+        else:
+            return torch.utils.data.Subset(self._dataset, self._test_indices) if self._test_indices else None
 
     @property
     def data_loader(self):
@@ -99,7 +133,7 @@ class PyTorchDataset(BaseDataset):
                 (examples, labels)
 
             Raises:
-                ValueError if the dataset is not defined yet or the given subset is not valid
+                ValueError: if the dataset is not defined yet or the given subset is not valid
         """
         if subset == 'all' and self._dataset is not None:
             return next(iter(self._data_loader))
@@ -124,7 +158,7 @@ class PyTorchDataset(BaseDataset):
                 seed (None or int): default None, can be set for pseudo-randomization
 
             Raises:
-                ValueError if percentage input args are not floats or sum to greater than 1
+                ValueError: if percentage input args are not floats or sum to greater than 1
         """
         if not (isinstance(train_pct, float) and isinstance(val_pct, float) and isinstance(test_pct, float)):
             raise ValueError("Percentage arguments must be floats.")
@@ -137,6 +171,7 @@ class PyTorchDataset(BaseDataset):
         test_size = int(test_pct * length)
         generator = torch.Generator().manual_seed(seed) if seed else None
         if shuffle_files:
+            self._shuffle = True
             dataset_indices = torch.randperm(length, generator=generator).tolist()
         else:
             dataset_indices = range(length)
@@ -158,23 +193,23 @@ class PyTorchDataset(BaseDataset):
             random.seed(worker_seed)
 
         if self._dataset:
-            self._data_loader = loader(self.dataset, batch_size=batch_size, shuffle=False,
+            self._data_loader = loader(self.dataset, batch_size=batch_size, shuffle=self._shuffle,
                                        num_workers=self._num_workers, worker_init_fn=seed_worker, generator=generator)
         else:
             self._data_loader = None
         if self._train_indices:
-            self._train_loader = loader(self.train_subset, batch_size=batch_size, shuffle=False,
+            self._train_loader = loader(self.train_subset, batch_size=batch_size, shuffle=self._shuffle,
                                         num_workers=self._num_workers, worker_init_fn=seed_worker, generator=generator)
         else:
             self._train_loader = None
         if self._validation_indices:
-            self._validation_loader = loader(self.validation_subset, batch_size=batch_size, shuffle=False,
+            self._validation_loader = loader(self.validation_subset, batch_size=batch_size, shuffle=self._shuffle,
                                              num_workers=self._num_workers, worker_init_fn=seed_worker,
                                              generator=generator)
         else:
             self._validation_loader = None
         if self._test_indices:
-            self._test_loader = loader(self.test_subset, batch_size=batch_size, shuffle=False,
+            self._test_loader = loader(self.test_subset, batch_size=batch_size, shuffle=self._shuffle,
                                        num_workers=self._num_workers, worker_init_fn=seed_worker,
                                        generator=generator)
         else:
@@ -230,6 +265,18 @@ class PyTorchDataset(BaseDataset):
 
             return T.Compose(transforms)
 
-        self._dataset.transform = get_transform(image_size, add_aug)
+        self._transform = get_transform(image_size, add_aug)
+        self._dataset.transform = self._transform
         self._preprocessed = {'image_size': image_size, 'batch_size': batch_size}
         self._make_data_loaders(batch_size=batch_size)
+
+    def get_inc_dataloaders(self):
+        calib_dataloader = self.train_loader
+        if self.validation_loader is not None:
+            eval_dataloader = self.validation_loader
+        elif self.test_loader is not None:
+            eval_dataloader = self.test_loader
+        else:
+            eval_dataloader = self.train_loader
+
+        return calib_dataloader, eval_dataloader

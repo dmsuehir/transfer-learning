@@ -147,12 +147,12 @@ class TFHubTextClassificationModel(TFTextClassificationModel):
                History object from the model.fit() call
 
            Raises:
-               FileExistsError if the output directory is a file
-               TypeError if the dataset specified is not a TextClassificationDataset
-               TypeError if the output_dir parameter is not a string
-               TypeError if the epochs parameter is not a integer
-               TypeError if the initial_checkpoints parameter is not a string
-               TypeError if the extra_layers parameter is not a list of integers
+               FileExistsError: if the output directory is a file
+               TypeError: if the dataset specified is not a TextClassificationDataset
+               TypeError: if the output_dir parameter is not a string
+               TypeError: if the epochs parameter is not a integer
+               TypeError: if the initial_checkpoints parameter is not a string
+               TypeError: if the extra_layers parameter is not a list of integers
         """
         self._check_train_inputs(output_dir, dataset, TextClassificationDataset, epochs, initial_checkpoints)
 
@@ -184,8 +184,13 @@ class TFHubTextClassificationModel(TFTextClassificationModel):
                                                                     early_stopping, lr_decay, dataset_num_classes)
 
         if distributed:
-            self.export_for_distributed(train_data, val_data)
-            self._fit_distributed(epochs, shuffle_files, hostfile, nnodes, nproc_per_node, kwargs.get('use_horovod'))
+            saved_objects_dir = self.export_for_distributed(
+                export_dir=os.path.join(output_dir, "tlt_saved_objects"),
+                train_data=train_data,
+                val_data=val_data
+            )
+            self._fit_distributed(saved_objects_dir, epochs, shuffle_files, hostfile, nnodes, nproc_per_node,
+                                  kwargs.get('use_horovod'))
             self.cleanup_saved_objects_for_distributed()
         else:
             history = self._model.fit(train_data, validation_data=val_data, epochs=epochs, shuffle=shuffle_files,
@@ -195,13 +200,20 @@ class TFHubTextClassificationModel(TFTextClassificationModel):
 
             return self._history
 
-    def evaluate(self, dataset: TextClassificationDataset, use_test_set=False):
+    def evaluate(self, dataset: TextClassificationDataset, use_test_set=False, enable_auto_mixed_precision=None):
         """
            If there is a validation set, evaluation will be done on it (by default) or on the test set (by setting
            use_test_set=True). Otherwise, the entire non-partitioned dataset will be used for evaluation.
 
            Args:
                dataset (TextClassificationDataset): The dataset to use for evaluation.
+               enable_auto_mixed_precision (bool or None): Enable auto mixed precision for evaluate. Mixed precision
+                    uses both 16-bit and 32-bit floating point types to make evaluation run faster and use less memory.
+                    It is recommended to enable auto mixed precision when running on platforms that support
+                    bfloat16 (Intel third or fourth generation Xeon processors). If it is enabled on a platform that
+                    does not support bfloat16, it can be detrimental to the evaluation performance. If
+                    enable_auto_mixed_precision is set to None, auto mixed precision will be automatically enabled when
+                    running with Intel fourth generation Xeon processors, and disabled for other platforms.
                use_test_set (bool): Specify if the test partition of the dataset should be used for evaluation.
                                     [default: False)
 
@@ -209,12 +221,15 @@ class TFHubTextClassificationModel(TFTextClassificationModel):
                Dictionary with loss and accuracy metrics
 
            Raises:
-               TypeError if the dataset specified is not a TextClassificationDataset
-               ValueError if the use_test_set=True and no test subset has been defined in the dataset.
-               ValueError if the model has not been trained or loaded yet.
+               TypeError: if the dataset specified is not a TextClassificationDataset
+               ValueError: if the use_test_set=True and no test subset has been defined in the dataset.
+               ValueError: if the model has not been trained or loaded yet.
         """
         if not isinstance(dataset, TextClassificationDataset):
             raise TypeError("The dataset must be a TextClassificationDataset but found a {}".format(type(dataset)))
+
+        # Set auto mixed precision
+        self.set_auto_mixed_precision(enable_auto_mixed_precision)
 
         if use_test_set:
             if dataset.test_subset:
@@ -231,23 +246,33 @@ class TFHubTextClassificationModel(TFTextClassificationModel):
 
         return self._model.evaluate(eval_dataset)
 
-    def predict(self, input_samples):
+    def predict(self, input_samples, enable_auto_mixed_precision=None):
         """
            Generates predictions for the specified input samples.
 
            Args:
                input_samples (str, list, numpy array, tensor, tf.data dataset or a generator keras.utils.Sequence):
                     Input samples to use to predict. These will be sent to the tf.keras.Model predict() function.
+               enable_auto_mixed_precision (bool or None): Enable auto mixed precision for prediction. Mixed precision
+                    uses both 16-bit and 32-bit floating point types to make prediction run faster and use less memory.
+                    It is recommended to enable auto mixed precision when running on platforms that support
+                    bfloat16 (Intel third or fourth generation Xeon processors). If it is enabled on a platform that
+                    does not support bfloat16, it can be detrimental to the inference performance. If
+                    enable_auto_mixed_precision is set to None, auto mixed precision will be automatically enabled when
+                    running with Intel fourth generation Xeon processors, and disabled for other platforms.
 
            Returns:
                Numpy array of scores
 
            Raises:
-               ValueError if the model has not been trained or loaded yet.
-               ValueError if there is a mismatch between the input_samples and the model's expected input.
+               ValueError: if the model has not been trained or loaded yet.
+               ValueError: if there is a mismatch between the input_samples and the model's expected input.
         """
         if self._model is None:
             raise ValueError("The model must be trained or loaded before predicting.")
+
+        # Set auto mixed precision
+        self.set_auto_mixed_precision(enable_auto_mixed_precision)
 
         # If a single string is passed in, make it a list so that it's compatible with the keras model predict
         if isinstance(input_samples, str):

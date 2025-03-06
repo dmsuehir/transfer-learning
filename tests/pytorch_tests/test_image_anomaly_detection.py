@@ -17,28 +17,40 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as functional
+except ModuleNotFoundError:
+    print("WARNING: Unable to import torch. Torch may not be installed")
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as functional
 
 import os
 import pytest
 import shutil
 import tempfile
+from unittest.mock import patch, MagicMock
 
 from tlt.datasets import dataset_factory
 from tlt.models import model_factory
 from tlt.utils.file_utils import download_and_extract_tar_file
-from tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model import extract_features
+
+try:
+    from tlt.datasets.image_anomaly_detection.pytorch_custom_image_anomaly_detection_dataset import PyTorchCustomImageAnomalyDetectionDataset  # noqa: E501
+    from tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model import extract_features
+except ModuleNotFoundError:
+    print("WARNING: Unable to import torch. Torch may not be installed")
 
 
+@pytest.mark.integration
+@pytest.mark.pytorch
 class TestImageAnomalyDetectionCustomDataset:
     """
     Tests for PyTorch image anomaly detection using a custom dataset using the flowers dataset
     """
     @classmethod
     def setup_class(cls):
+        os.makedirs('/tmp/data', exist_ok=True)
         temp_dir = tempfile.mkdtemp(dir='/tmp/data')
         custom_dataset_path = os.path.join(temp_dir, "flower_photos")
 
@@ -64,8 +76,6 @@ class TestImageAnomalyDetectionCustomDataset:
                 print("Deleting test directory:", dir)
                 shutil.rmtree(dir)
 
-    @pytest.mark.integration
-    @pytest.mark.pytorch
     @pytest.mark.parametrize('model_name',
                              ['resnet18'])
     def test_custom_dataset_workflow(self, model_name):
@@ -98,15 +108,137 @@ class TestImageAnomalyDetectionCustomDataset:
         assert len(features) == 32
 
         # Evaluate
-        threshold, auroc = model.evaluate(dataset, pca_components)
+        threshold, auroc = model.evaluate(dataset)
         assert isinstance(auroc, float)
 
         # Predict with a batch
-        predictions = model.predict(images, pca_components)
+        predictions = model.predict(images)
         assert len(predictions) == 32
 
-    @pytest.mark.integration
-    @pytest.mark.pytorch
+        # Export the saved model
+        saved_model_dir = model.export(self._output_dir)
+        assert os.path.isdir(saved_model_dir)
+        assert os.path.isfile(os.path.join(saved_model_dir, "model.pt"))
+
+        # Reload the saved model
+        reload_model = model_factory.get_model(model_name, framework, use_case)
+        reload_model.load_from_directory(saved_model_dir)
+
+        # Evaluate reloaded model
+        reload_threshold, reload_auroc = reload_model.evaluate(dataset)
+        assert reload_threshold == threshold
+        assert reload_auroc == auroc
+
+    @pytest.mark.parametrize('model_name,device',
+                             [['resnet18', 'hpu']])
+    def test_no_hpu_workflow(self, model_name, device):
+        """
+        Tests the workflow for PYT image anomaly detection when "hpu" is specified but not available
+        """
+        framework = 'pytorch'
+        use_case = 'image_anomaly_detection'
+
+        # Get the dataset
+        dataset = dataset_factory.load_dataset(self._dataset_dir, use_case=use_case, framework=framework,
+                                               shuffle_files=False)
+        assert ['tulips'] == dataset.defect_names
+        assert ['bad', 'good'] == dataset.class_names
+
+        # Get the model
+        model = model_factory.get_model(model_name, framework, use_case, device=device)
+
+        # Preprocess the dataset and split to get small subsets for training and validation
+        dataset.preprocess(model.image_size, 32)
+        dataset.shuffle_split(train_pct=0.1, val_pct=0.1, seed=10)
+
+        # Train for 1 epoch
+        pca_components, trained_model = model.train(dataset, self._output_dir,
+                                                    layer_name='layer3', seed=10, simsiam=False)
+        assert model._device == "cpu"
+
+        # Extract features
+        images, labels = dataset.get_batch(subset='validation')
+        features = extract_features(trained_model, images, layer_name='layer3', pooling=['avg', 2])
+        assert len(features) == 32
+
+        # Evaluate
+        threshold, auroc = model.evaluate(dataset)
+        assert model._device == "cpu"
+        assert isinstance(auroc, float)
+
+        # Predict with a batch
+        predictions = model.predict(images)
+        assert model._device == "cpu"
+        assert len(predictions) == 32
+
+        # Export the saved model
+        saved_model_dir = model.export(self._output_dir)
+        assert os.path.isdir(saved_model_dir)
+        assert os.path.isfile(os.path.join(saved_model_dir, "model.pt"))
+
+        # Reload the saved model
+        reload_model = model_factory.get_model(model_name, framework, use_case, device=device)
+        reload_model.load_from_directory(saved_model_dir)
+
+        # Evaluate reloaded model
+        reload_threshold, reload_auroc = reload_model.evaluate(dataset)
+        assert model._device == "cpu"
+        assert reload_threshold == threshold
+        assert reload_auroc == auroc
+
+    @pytest.mark.parametrize('model_name,device',
+                             [['resnet18', 'hpu']])
+    @patch('tlt.models.image_anomaly_detection.utils.htcore', create=True, new_callable=lambda: MagicMock(name='htcore'))  # noqa: E501
+    @patch("tlt.models.image_anomaly_detection.utils.torch")
+    @patch("tlt.models.image_anomaly_detection.utils.ProgressMeter")
+    @patch("tlt.models.image_anomaly_detection.utils.is_hpu_available")
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.is_hpu_available")
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.PyTorchImageAnomalyDetectionModel.load_checkpoint_weights")  # noqa: E501
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.torch")
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.nn")
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.builder")
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.pca")
+    @patch("tlt.models.image_anomaly_detection.pytorch_image_anomaly_detection_model.get_feature_extraction_model")
+    def test_hpu_workflow(self, mock_extraction, mock_pca, mock_builder, mock_nn, mock_torch, mock_load_ckpt,
+                          mock_model_hpu_available, mock_hpu_available, mock_prog, mock_utils_torch, mock_habana,
+                          model_name, device):
+        """
+        Tests the workflow for PYT image anomaly detection when "hpu" is the selected device and is available
+        """
+        framework = 'pytorch'
+        use_case = 'image_anomaly_detection'
+
+        # Mock out the model downloader since we aren't doing a real train, we don't need a real model
+        mock_model = MagicMock()
+        mock_model.__call__ = MagicMock(return_value=(1, 2, 3, 4))
+        mock_model.to = MagicMock()
+        mock_model.to.return_value = MagicMock(return_value=(1, 2, 3, 4))
+        mock_load_ckpt.return_value = mock_model
+        mock_builder.SimSiam = MagicMock()
+        mock_builder.SimSiam.return_value = mock_model
+
+        # Get the model
+        model = model_factory.get_model(model_name, framework, use_case, device=device)
+        model.load_pretrained_model = MagicMock()
+
+        # Create a mock dataset, since we aren't really training
+        mock_dataset = MagicMock()
+        mock_dataset.__class__ = PyTorchCustomImageAnomalyDetectionDataset
+        mock_dataset.get_batch.return_value = MagicMock(content=[1, 2]), MagicMock(content=[1, 2])
+        mock_dataset._train_loader = MagicMock()
+        mock_inputs = MagicMock()
+        data_loader_data = [(mock_inputs, 0), (mock_inputs, 0)]
+        mock_dataset._train_loader.__iter__ = MagicMock(return_value=iter(data_loader_data))
+
+        # Train for 1 epoch
+        model.train(mock_dataset, self._output_dir, layer_name='layer3', seed=10, simsiam=True)
+
+        if device == 'hpu':
+            # mark_step is called before and after each step
+            assert mock_habana.mark_step.call_count == len(data_loader_data) * 2
+        else:
+            mock_habana.mark_step.assert_not_called()
+
     def test_custom_model_workflow(self):
         """
         Tests the workflow for PYT image anomaly detection using a custom model and custom dataset
@@ -158,18 +290,16 @@ class TestImageAnomalyDetectionCustomDataset:
         assert len(features) == 32
 
         # Evaluate
-        threshold, auroc = model.evaluate(dataset, pca_components)
+        threshold, auroc = model.evaluate(dataset)
         assert isinstance(auroc, float)
 
         # Predict with a batch
-        predictions = model.predict(images, pca_components)
+        predictions = model.predict(images)
         assert len(predictions) == 32
 
-    @pytest.mark.integration
-    @pytest.mark.pytorch
     @pytest.mark.parametrize('model_name',
                              ['resnet18'])
-    def test_simsiam_workflow(self, model_name):
+    def test_simsiam_workflow_quantization(self, model_name):
         """
         Tests the workflow for PYT image anomaly detection using a custom dataset
         and simsiam feature extractor enabled
@@ -196,19 +326,23 @@ class TestImageAnomalyDetectionCustomDataset:
                                                     seed=10, simsiam=True, initial_checkpoints=None)
 
         # Evaluate
-        threshold, auroc = model.evaluate(dataset, pca_components)
+        threshold, auroc = model.evaluate(dataset)
         assert isinstance(auroc, float)
 
         # Predict with a batch
         images, labels = dataset.get_batch(subset='validation')
-        predictions = model.predict(images, pca_components)
+        predictions = model.predict(images)
         assert len(predictions) == 32
 
-    @pytest.mark.integration
-    @pytest.mark.pytorch
+        # Quantization
+        inc_output_dir = os.path.join(self._output_dir, "quantized", model_name)
+        os.makedirs(inc_output_dir, exist_ok=True)
+        model.quantize(inc_output_dir, dataset)
+        assert os.path.exists(os.path.join(inc_output_dir, "model.pt"))
+
     @pytest.mark.parametrize('model_name',
                              ['resnet18'])
-    def test_cutpaste_workflow(self, model_name):
+    def test_cutpaste_workflow_benchmark(self, model_name):
         """
         Tests the workflow for PYT image anomaly detection using a custom dataset
         and cutpaste feature extractor enabled
@@ -236,10 +370,62 @@ class TestImageAnomalyDetectionCustomDataset:
                                                     cutpaste=True)
 
         # Evaluate
-        threshold, auroc = model.evaluate(dataset, pca_components, use_test_set=True)
+        threshold, auroc = model.evaluate(dataset, use_test_set=True)
         assert isinstance(auroc, float)
 
         # Predict with a batch
         images, labels = dataset.get_batch(subset='test')
-        predictions = model.predict(images, pca_components)
+        predictions = model.predict(images, pca_mats=pca_components)
         assert len(predictions) == 32
+
+        # Export the saved model
+        saved_model_dir = model.export(self._output_dir)
+        assert os.path.isdir(saved_model_dir)
+        assert os.path.isfile(os.path.join(saved_model_dir, "model.pt"))
+
+        # Benchmark
+        model.benchmark(dataset=dataset)
+
+    @pytest.mark.parametrize('model_name',
+                             ['vgg11',
+                              'efficientnet_b1',
+                              'alexnet'])
+    def test_no_simsiam_or_cutpaste(self, model_name):
+        """
+        Tests the workflow for PYT image anomaly detection using a custom dataset
+        and cutpaste feature extractor enabled
+        """
+        framework = 'pytorch'
+        use_case = 'image_anomaly_detection'
+
+        # Get the dataset
+        dataset = dataset_factory.load_dataset(self._dataset_dir, use_case=use_case, framework=framework,
+                                               shuffle_files=False)
+        assert ['tulips'] == dataset.defect_names
+        assert ['bad', 'good'] == dataset.class_names
+
+        # Get the model
+        model = model_factory.get_model(model_name, framework, use_case)
+
+        # Preprocess the dataset and split to get small subsets for training and validation
+        dataset.preprocess(model.image_size, 32)
+        dataset.shuffle_split(train_pct=0.5, val_pct=0.25, test_pct=0.25, seed=10)
+
+        # Train for 1 epoch
+        pca_components, trained_model = model.train(dataset, self._output_dir, epochs=1, kernel_size=2,
+                                                    layer_name='features', pooling='avg', pca_threshold=0.99,
+                                                    seed=10)
+
+        # Evaluate
+        threshold, auroc = model.evaluate(dataset, use_test_set=True)
+        assert isinstance(auroc, float)
+
+        # Predict with a batch
+        images, labels = dataset.get_batch(subset='test')
+        predictions = model.predict(images, pca_mats=pca_components)
+        assert len(predictions) == 32
+
+        # Export the saved model
+        saved_model_dir = model.export(self._output_dir)
+        assert os.path.isdir(saved_model_dir)
+        assert os.path.isfile(os.path.join(saved_model_dir, "model.pt"))

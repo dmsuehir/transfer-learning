@@ -1,30 +1,36 @@
-Pillow~=9.4.0
-PyYAML<6.0.0,>=5.4.1
-charset-normalizer>=2.0,<3.0
-datasets~=2.9.0
-gin-config~=0.5.0
-intel-extension-for-pytorch==1.13.0
-intel-tensorflow==2.11.0
-ipython-genutils~=0.2.0
-ipython~=8.10.0
-ipywidgets~=8.0.4
-jmespath~=1.0.1
-matplotlib-inline~=0.1.6
-matplotlib~=3.6.3
-notebook~=6.5.2
-numpy>=1.22,<1.24  # TODO: https://github.com/tensorflow/tensorflow/blob/master/tensorflow/tools/pip_package/setup.py#L96-L97
-opencv-python~=4.7.0.68
-pandas~=1.5.3
-psutil~=5.9.4
-pycocotools~=2.0.6
-scikit-learn~=1.2.1
-scipy~=1.10.0
-sentencepiece~=0.1.97
-setuptools<66
-tensorflow-addons~=0.19.0
-tensorflow-datasets~=4.8.2
-tensorflow-hub~=0.12.0
-torch==1.13.1
-torchvision==0.14.1
-transformers~=4.26.0
-urllib3~=1.26.14
+Pillow==10.3.0
+PyYAML==6.0.1
+charset-normalizer==3.3.0
+datasets==2.14.5
+evaluate==0.4.0
+gin-config==0.5.0
+intel-extension-for-pytorch==2.2.0
+intel-tensorflow==2.14.0
+ipython==8.12.3; python_version=='3.8'
+ipython==8.16.1; python_version>'3.8'
+ipython-genutils==0.2.0
+ipywidgets==8.1.1
+jmespath==1.0.1
+matplotlib==3.7.3; python_version=='3.8'
+matplotlib==3.8.0; python_version>'3.8'
+matplotlib-inline==0.1.6
+neural-compressor==2.4.1
+notebook==7.2.2
+numpy==1.24.3
+opencv-python==4.8.1.78
+pandas==2.0.3; python_version=='3.8'
+pandas==2.1.1; python_version>'3.8'
+psutil==5.9.6
+pycocotools==2.0.7
+scikit-learn==1.5.0
+scipy==1.10.1; python_version=='3.8'
+scipy==1.11.3; python_version>'3.8'
+sentencepiece==0.1.99
+tensorflow-addons==0.21.0
+tensorflow-datasets==4.9.2; python_version=='3.8'
+tensorflow-datasets==4.9.3; python_version>'3.8'
+tensorflow-hub==0.15.0
+torch==2.2.0
+torchvision==0.17.0
+transformers==4.38.0
+urllib3==2.2.2

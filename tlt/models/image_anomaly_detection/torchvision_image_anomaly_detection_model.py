@@ -45,6 +45,12 @@ class TorchvisionImageAnomalyDetectionModel(PyTorchImageAnomalyDetectionModel):
 
         self._image_size = torchvision_model_map[model_name]["image_size"]
         self._original_dataset = torchvision_model_map[model_name]["original_dataset"]
+        self._hub = "torchvision"
+        self._classification_layer = torchvision_model_map[model_name]["classification_layer"]
 
-        downloader = ModelDownloader(model_name, hub='torchvision', model_dir=None, weights=self._original_dataset)
-        self._model = downloader.download()
+        self._model = self._model_downloader(self._model_name)
+
+    def _model_downloader(self, model_name):
+        downloader = ModelDownloader(model_name, hub=self._hub, model_dir=None)
+        model = downloader.download()
+        return model
